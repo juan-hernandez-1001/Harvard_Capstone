@@ -1,0 +1,930 @@
+##########################################################################################
+#INTRODUCTION
+##########################################################################################
+#Goal of the project:
+#The goal of the proejct consists of creating a movie recommendation system using the 10M version of the MovieLens dataset.
+#More specifically, it consists of training and testing a machine learning algorithm with a subset of the 10M version of the MovieLens dataset (called train edx set).
+#The edx set contains 90% of the data of the 10M version of the MovieLens dataset and the final hold out dataset contains the remaining
+#10% of the data in the 10M version of the MovieLens dataset.
+#The edx set  is then split into two subsets. The first subset is called train set (which contains 80% of edx set) and the second subset is called test set, which contains the other
+#20% of the edx set data, and acts as a validation set. 
+#Once the machine learning model is trained on the train set and tested on the test set (validation set), it is tested once more on the final holdout test set.
+#The goal of to develop a machine learning model that will predict, with the greatest accuracy possible, movie ratings for movies contained in the final holdout test set. 
+#Accuracy is measured by a measure called Root Mean Squared Error (RMSE).
+
+#Description of the dataset:
+#The 10M version of the MovieLens dataset contains 10 million rows and six columns as follows: 
+#userId: ID number of person that has rated one or more movies
+#movieId: ID of movie rated
+#rating: rating given to a movie by a given user
+#timestamp: date and time a movie was rated by a given user
+#title: the movie's title
+#genres: the genre or genres to which the movie belongs
+
+#Key steps performed:
+#The key steps performed are the following:
+#Extract the data and spit data into edx set and final holdout test datasets
+#Explore the data
+#Prepare data for models
+#Develop and train models on the train set
+#Test models on the test set
+#Chose a model and enhance it with regularization
+#Test the regularized model on the final hold out test set
+#Draw conclusions
+
+##########################################################################################
+#EXTRACT DATA AND SPLIT DATA INTO EDX SET AND FINAL HOLDOUT TEST DATASETS
+##########################################################################################
+#Note: the following code is the one that was provided and is used with no alterations
+#to ensure accuracy of results
+
+# Create edx and final_holdout_test sets:
+
+#Set working directory
+#setwd("C:/Users/client/Documents/Harvard/Capstone/Movielens")
+
+#Insstall necessary packages and load libraries
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+options(timeout = 300)
+
+dl <- "ml-10M100K.zip"
+if(!file.exists(dl))
+  
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings_file <- "ml-10M100K/ratings.dat"
+if(!file.exists(ratings_file))
+  unzip(dl, ratings_file)
+
+movies_file <- "ml-10M100K/movies.dat"
+if(!file.exists(movies_file))
+  unzip(dl, movies_file)
+
+ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
+                         stringsAsFactors = FALSE)
+colnames(ratings) <- c("userId", "movieId", "rating", "timestamp")
+
+ratings <- ratings %>%
+  mutate(userId = as.integer(userId),
+         movieId = as.integer(movieId),
+         rating = as.numeric(rating),
+         timestamp = as.integer(timestamp))
+
+movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
+                        stringsAsFactors = FALSE)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- movies %>%
+  mutate(movieId = as.integer(movieId))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Final hold-out test set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.6 or later
+# set.seed(1) # if using R 3.5 or earlier
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in final hold-out test set are also in edx set
+final_holdout_test <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from final hold-out test set back into edx set
+removed <- anti_join(temp, final_holdout_test)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+##########################################################################################
+# EXPLORE THE DATA
+##########################################################################################
+#Note: the following code served to answer the questions in the quiz and to further explore
+#the data
+
+#Determine the number of rows and columns in the edx dataset
+dim(edx)
+#Insight: the edx dataset contains 9000055 rows
+
+#Determine number of zero rating  in the edx dataset
+class(edx$rating)
+value_to_count <- 0.0
+count_0_0 <- length(which(edx$rating == value_to_count))
+count_0_0
+#Insight: no zero ratings appear in the edx dataset
+
+#Determine number of 3 ratings in the edx dataset
+value_to_count <- 3.0
+count_3_0 <- length(which(edx$rating == value_to_count))
+count_3_0
+#Insight: 2,121,240 movies were given a 3 rating
+
+#Determine number of different movies in the edx dataset
+length(unique(edx$movieId))
+n_distinct(edx$movieId)
+#Insight: there are 10,677 different movies in the edx dataset
+
+#Determine number of different users in the edx dataset
+length(unique(edx$userId))
+n_distinct(edx$userId)
+#Insight: there are 69,878 different users in the edx dataset.
+
+#Determine number of movie ratings in each of the following genres in the edx dataset:
+
+#Determine if there are missing values in the rating column
+sum(is.na(edx$ratings))
+
+#Determine the data type of the rating column
+class(edx$genres)
+
+#Drama:
+Values_in_genres_col_containing_Drama <- sum(stringr::str_count(edx$genres, pattern = 'Drama'))
+Values_in_genres_col_containing_Drama
+#Insight: there are 3,910,127 movie ratings in the Drama genre.
+
+#Comedy:
+Values_in_genres_col_containing_Comedy <- sum(stringr::str_count(edx$genres, pattern = 'Comedy'))
+Values_in_genres_col_containing_Comedy
+#Insight: there are 3,540,930 movie ratings in the Comedy genre.
+
+#Thriller:
+Values_in_genres_col_containing_Thriller <- sum(stringr::str_count(edx$genres, pattern = 'Thriller'))
+Values_in_genres_col_containing_Thriller
+#Insight: there are 2,325,899 movie ratings in the Thriller genre.
+
+#Romance:
+Values_in_genres_col_containing_Romance <- sum(stringr::str_count(edx$genres, pattern = 'Romance'))
+Values_in_genres_col_containing_Romance
+#Insight: there are 1, 712,100 movie ratings in the Romance genre.
+
+#Determine movie that has the greatest number of ratings:
+
+#Forest Gump:
+Rows_containing_Forrest <- edx %>%
+  filter(str_detect(title, "Forrest"))
+Rows_containing_Forrest
+value_to_count <- 356
+Number_ratings_Forrest_Gump <- length(which(edx$movieId == value_to_count))
+Number_ratings_Forrest_Gump
+#Insight: Forrest Gump has 31,079 ratings
+
+#Jurasic Park
+Rows_containing_Jurassic <- edx %>%
+  filter(str_detect(title, "Jurassic"))
+Rows_containing_Jurassic
+value_to_count <- 480
+Number_ratings_Jurassic_Park <- length(which(edx$movieId == value_to_count))
+Number_ratings_Jurassic_Park
+#Insight: Jurasic Park has 29,360 ratings
+
+#Pulp Fiction
+Rows_containing_Pulp <- edx %>%
+  filter(str_detect(title, "Pulp"))
+Rows_containing_Pulp
+value_to_count <- 296
+Number_ratings_Pulp_Fiction <- length(which(edx$movieId == value_to_count))
+Number_ratings_Pulp_Fiction
+#Insight: Pulp Fiction has 31,362 ratings
+
+#ShawShank redemption
+Rows_containing_Shawshank <- edx %>%
+  filter(str_detect(title, "Shawshank"))
+Rows_containing_Shawshank
+value_to_count <- 318
+Number_ratings_ShawShank <- length(which(edx$movieId == value_to_count))
+Number_ratings_ShawShank
+#Insight: ShawShank redemption has 28,015 ratings.
+
+#Cruise Control
+Rows_containing_Cruise_Control <- edx %>%
+  filter(str_detect(title, "Cruise Control"))
+Rows_containing_Cruise_Control
+value_to_count <- 1556
+Number_ratings_Cruise_Control <- length(which(edx$movieId == value_to_count))
+Number_ratings_Cruise_Control
+#Insight: Cruise Control has 2,566 ratings.
+
+#Determine the five most given ratings in order from most to least:
+
+#4-ratings
+value_to_count <- 4.0
+count_4_0 <- length(which(edx$rating == value_to_count))
+count_4_0
+#Insight: 2,588,430 4-ratings were given.
+
+#3.5-ratings
+value_to_count <- 3.5
+count_3_5 <- length(which(edx$rating == value_to_count))
+count_3_5
+#Insight: 791,624 3.5-ratings were given.
+
+#0.5-ratings
+value_to_count <- 0.5
+count_0_5 <- length(which(edx$rating == value_to_count))
+count_0_5
+#Insight: 85,374 0.5-ratings were given.
+
+#5-ratings
+value_to_count <-5.0
+count_5_0 <- length(which(edx$rating == value_to_count))
+count_5_0
+#Insight: 1,390,114 5-ratings were given.
+
+#2-ratings
+value_to_count <-2.0
+count_2_0 <- length(which(edx$rating == value_to_count))
+count_2_0
+#Insight: 711,422 2-ratings were given.
+
+#Determine if, in  general, half star ratings are less common than whole star ratings
+#(e.g., there are fewer ratings of 3.5 than there are ratings of 3 or 4, etc.).
+
+#Determine number of 2.5-ratings
+value_to_count <- 2.5
+count_2_5 <- length(which(edx$rating == value_to_count))
+count_2_5
+#Insight: 333,010 2.5-ratings were given
+
+#3-ratings
+value_to_count <- 3.0
+count_3_0 <- length(which(edx$rating == value_to_count))
+count_3_0
+#21,21,240 3-ratings were given.
+
+##########################################################################################
+#PREPARE DATA FOR MODELS
+##########################################################################################
+
+#Split edx data set into training and test sets
+
+# Set the seed for reproducibility
+set.seed(123)
+
+# Create an index to split the data into training (80%) and test (20%) sets
+train_index <- createDataPartition(y = edx$rating, p = 0.8, times = 1, list = FALSE)
+
+# Split the edx dataset into train set and test set (which acts as a validation set)
+train_set <- edx[train_index, ]
+test_set <- edx[-train_index, ]
+
+#Remove users and movies from test set that do not appear in the training set 
+test_set <- test_set %>% semi_join(train_set, by = 'movieId')%>% semi_join(train_set, by = 'userId')
+
+# Check the dimensions of the training and test sets:
+
+dim(train_set)
+#Insight: the train set has 7,200,045 rows and 6 columns
+
+dim(test_set)
+#Insight: the test set (which acts as a validation set) has 1,799,974 rows and 6 columns.
+
+##########################################################################################
+#METHODS / ANALYSIS
+##########################################################################################
+
+#The process used consists of using the train set to develop a model that use the average
+#movie rating (derived from the rating colum) in the train set to predict
+#movie ratings in the test set.
+#It alsos consists of usin the train set to develop models that incorporate effects that 
+#can be derived from all the other available columns contained
+#in the train set.
+#Such effects are movie effect (derived fomr the movieId column), user effect (derived 
+#from the userId  column), timestamp effect (derived from the timestamp column)
+#and release year effect (derived from the title column).
+#All the above models were tested on the test set (validation set).
+#Then, the model with the best RMSE whose code I developed was chosen to further enhance 
+#it with regularization.
+#The regularized model was then applied to the final holdout test set to determine this 
+#model's predictions accuracy.
+
+#Techniques used include the calculation of movie effect, user effect , timestamp effect 
+#and release year effect
+#Techniques used also included the determination of a loss function to measure the 
+#prediction accuracy of the models; precisely, the Root Mean Squared Error was chosen
+#to measure the accuracy of all the models' predictions.
+#Techniques also included regularization, calculation of statistics such as the mean of 
+#movie ratings, as well as string processing techniques, such as the use of regular expressions.
+
+
+########################################################################################
+
+#Create Root Mean Squared Error (RMSE) function (loss function) to determine accuracy of
+#predicted ratings of all models
+
+RMSE <- function (true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+##########################################################################################
+
+#Create models using the train_set to train the models and then use the test_set (Which 
+#acts as validation set) to test the models:
+
+#Create simplest model that predicts the same rating for all movies by using the average
+#rating of all movies in the train set (Just-the
+#-Average Model):
+
+mu <- mean(train_set$rating) #caclulate the average rating of all movies in the train set
+mu
+#Insitht: the average movie rating in the train dataset is 3.51266
+
+#Determine naive RMSE, that is, the RMSE of the Just-the-Average Model
+naive_rmse <- RMSE(test_set$rating, mu)
+naive_rmse
+#Insight: the naive RMSE is 1.061235; that is, the simplest model's typical error when
+#predicting movie ratings is a little over one rating.
+
+#Create table to store RMSE results of different models
+rmse_results <- data_frame(Method = "Just-the-Average Model", RMSE = naive_rmse)
+
+#show the rmse_results table
+rmse_results
+rmse_results  %>% knitr::kable()
+#Insight: the naive RMSE is 1.061235; thus, there is room for improvement.
+
+#################################################################################
+
+#Create model that incorporates movie bias (Movie Effect Model):
+
+#Calculate movie bias
+movie_avgs <- train_set  %>%
+  group_by(movieId)  %>%  # Group by movieId to calculate per-movie bias
+  summarize(b_i = mean(rating - mu))  # Calculate the average deviation from the global mean for each movie
+
+
+#Predict movie ratings based on model that incorporates movie bias
+predicted_ratings <- mu + test_set %>%
+  left_join(movie_avgs, by = 'movieId')  %>%
+  .$b_i
+
+#Calculate RMSE for Movie Effect Model
+rmse_movie_effect_model <- RMSE(predicted_ratings, test_set$rating)
+rmse_movie_effect_model
+#Insight: the RMSE of the model that incorporates movie bias is 0.9442583; 
+#that is, #the typical error of this model when predicting movie ratings is a little
+#less than one rating.
+ 
+#Add  Movie Effect Model RMSE to rmse_results table
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(Method = 'Movie Effect Model',
+                                     RMSE = rmse_movie_effect_model))
+#show the rmse_results table
+rmse_results  %>% knitr::kable()
+#Insight: by incorporating movie bias, the RMSE has decreased; thus the accuracy of 
+#this model is better than that
+#of the simplest model.
+
+##########################################################################################
+
+#Create model that incorporates movie bias and user bias (Movie + User Effects Model):
+
+#Determine user bias
+user_avgs <- train_set %>%
+  left_join(movie_avgs, by = 'movieId')  %>%
+  group_by(userId)  %>%
+  summarize(b_u = mean(rating - mu - b_i))
+
+#Predict ratings of Movie + User Effect Model
+predicted_ratings <- test_set %>%
+  left_join(movie_avgs, by ='movieId') %>%
+  left_join(user_avgs, by = 'userId') %>%
+  mutate(pred = mu + b_i +b_u) %>%
+  .$pred
+
+#Calculate RMSE of Movie + User Effect Model
+rmse_movi_plus_user_effects_model <- RMSE(predicted_ratings, test_set$rating)
+rmse_movi_plus_user_effects_model
+
+#Insight: the RMSE of the model that incorporates movie bias and user bias is 0.8666644;
+#that is,  the typical error of this model when predicting movie ratings is 0.8666644 rating.
+
+#Incorporate RMSE of Movie + User Effect Model into rmse_results table
+rmse_results <-bind_rows(rmse_results,
+                         data_frame(Method="Movie + User Effects Model",
+                                    RMSE = rmse_movi_plus_user_effects_model))
+rmse_results %>% knitr::kable()
+#Insight: by incorporating movie bias and user bias, the RMSE has decreased; 
+#thus the accuracy of this model is better than that of the model that incorporates 
+#only movie bias.
+
+##########################################################################################
+
+#Create model that incorporates movie, user and  genre bias (Movie + User + Genre Effects
+#Model):
+
+# Calculate genre bias based on the average ratings of each genre
+movie_genre_avgs <- train_set %>%
+  group_by(movieId) %>%  # Group by movie
+  summarise(genre_avg_rating = mean(rating - mu))  # Calculate average rating deviation (genre bias) 
+
+# Predict ratings for the test set using the Movie + User + Genre Effects Model
+predicted_ratings_test <- test_set %>%
+  left_join(movie_avgs, by = 'movieId') %>%    # Join with movie biases
+  left_join(user_avgs, by = 'userId') %>%      # Join with user biases
+  left_join(movie_genre_avgs, by = 'movieId') %>%  # Join with movie genre biases
+  mutate(pred = mu + b_i + b_u + genre_avg_rating) %>%  # Calculate predicted ratings including genre bias
+  .$pred                                        # Extract the predicted ratings
+
+# Display some predicted ratings for verification
+head(predicted_ratings_test)
+
+# Ensure that the predicted_ratings_test vector has the same number of values as the test_set$rating vector
+length(predicted_ratings_test) == length(test_set$rating)
+
+# Check for any NA values in test_set$rating
+sum(is.na(test_set$rating))
+
+# Check for any NA values in predicted_ratings_test
+sum(is.na(predicted_ratings_test))
+
+# Handle any Missing Values (NA) in predictions by replacing them with average rating
+filling_rating <- mean(predicted_ratings_test, na.rm = TRUE)
+filling_rating
+predicted_ratings_test[is.na(predicted_ratings_test)] <- filling_rating
+
+# Ensure no NA values remain in predicted_ratings_test
+sum(is.na(predicted_ratings_test))
+
+# Calculate RMSE for the Movie + User + Genre Effects Model on the test set
+rmse_move_user_genre_effects_model <- RMSE(predicted_ratings_test, test_set$rating)
+
+# Print the RMSE
+rmse_move_user_genre_effects_model
+#Insight: the RMSE of the model that incorporates movie bias, user bias and genre bias is 0.9921856;
+#that is, the typical error of this model when predicting movie ratings is a little less than one rating.
+
+# Add RMSE for the Movie + User + Genre Effects Model to the rmse_results table
+rmse_results <- rmse_results %>%
+  bind_rows(data_frame(Method = "Movie + User + Genre Effects Model", RMSE = rmse_move_user_genre_effects_model))
+
+# View the updated rmse_results table
+rmse_results %>% knitr::kable()
+#Insight: Interestingly, the RMSE of the Movie + User + Genre Effects Model is higher
+#than the RMSE of the Movie Effect Model and the RMSE of
+# the |Movie + User Effects Model; 
+
+##########################################################
+
+#Create a model that incorporates movie, user and timestamp biases  (Movie + User + 
+#Timestamp Effects Model):
+
+# Convert timestamp column in train_set to Date
+train_set$timestamp <- as.POSIXct(train_set$timestamp, origin = "1970-01-01", tz = "UTC")
+
+# Extract year, month, and day features from the timestamp
+train_set <- train_set %>%
+  mutate(year = as.integer(format(timestamp, "%Y")),
+         month = as.integer(format(timestamp, "%m")),
+         day = as.integer(format(timestamp, "%d")))
+
+# Check the new columns
+head(train_set)
+
+# Calculate timestamp bias for year, month, and day:
+
+year_avgs <- train_set %>%
+  group_by(year) %>%  # Group by year
+  summarize(b_year = mean(rating - mu))  # Calculate bias for year
+
+month_avgs <- train_set %>%
+  group_by(month) %>%  # Group by month
+  summarize(b_month = mean(rating - mu))  # Calculate bias for month
+
+day_avgs <- train_set %>%
+  group_by(day) %>%  # Group by day
+  summarize(b_day = mean(rating - mu))  # Calculate bias for day
+
+# Check the calculated biases
+head(year_avgs)
+head(month_avgs)
+head(day_avgs)
+
+# Convert timestamp column in test_set to Date format
+test_set$timestamp <- as.POSIXct(test_set$timestamp, origin = "1970-01-01", tz = "UTC")
+
+# Extract year, month, and day features from the timestamp in test_set
+test_set <- test_set %>%
+  mutate(year = as.integer(format(timestamp, "%Y")),
+         month = as.integer(format(timestamp, "%m")),
+         day = as.integer(format(timestamp, "%d")))
+
+# Check the new columns in the test_set
+head(test_set)
+
+# Predict ratings with movie, user, and timestamp biases in the test_set
+predicted_ratings_with_timestamp <- test_set %>%
+  left_join(movie_avgs, by = 'movieId') %>%     # Join with movie biases
+  left_join(user_avgs, by = 'userId') %>%       # Join with user biases
+  left_join(year_avgs, by = 'year') %>%    # Join with year bias
+  left_join(month_avgs, by = 'month') %>%       # Join with month bias
+  left_join(day_avgs, by = 'day') %>%           # Join with day bias
+  mutate(pred = mu + b_i + b_u + b_year + b_month + b_day) %>%  # Add the timestamp biases
+  .$pred  # Extract the predicted ratings
+
+# Check the predicted ratings
+head(predicted_ratings_with_timestamp)
+
+# Calculate RMSE for the Movie + User + Timestamp Effects Model
+rmse_movie_user_timestamp_model <- RMSE(predicted_ratings_with_timestamp, test_set$rating)
+
+# Print the RMSE
+rmse_movie_user_timestamp_model
+#Insight: the RMSE of the Movie + User + Timestamp Effects Model is 0.8694084. 
+
+# Add the RMSE for the Movie + User + Timestamp Effects Model to the rmse_results table
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(Method = "Movie + User + Timestamp Effects Model", 
+                                     RMSE = rmse_movie_user_timestamp_model))
+
+# View the updated rmse_results table
+rmse_results %>% knitr::kable()
+#Insight: the RMSE of the Movie + User + Timestamp Effects Model is significantly 
+#better than the RMSE of the Just-the-Average Model, the RMSE of the Movie Effect Model, 
+#and the RMSE of the Movie + User + Genre Effects Model.
+#and it is slightly higher than the RMSE of the Movie + User Effects Model.
+
+##########################################################
+
+
+#Create model that incorporates movie, user, timestamp and movie release year biases 
+#(Movie + User + Timestamp + Release year Effects Model):
+
+# View the first few titles in the 'title' column of the train set to understand
+#their format
+head(train_set$title, 20)
+
+# Extract the year from the "title" column of train_set dataset using a 
+#regular expression
+train_set$release_year <- str_extract(train_set$title, "\\(\\d{4}\\)")  # Extract text like (1995)
+
+# Check if extraction worked correctly
+head(train_set$release_year, 20)
+
+# Clean up any remaining parentheses if they are present using a regular expression
+train_set$release_year <- train_set$release_year %>%
+  str_remove_all("[()]")
+
+head(train_set$release_year)
+
+# Convert the release_year to numeric to handle it as a number
+train_set$release_year <- as.numeric(train_set$release_year)
+
+# Display the first few rows to check if the year extraction worked
+head(train_set)
+
+# Calculate the release year bias by computing the average rating for each release year
+release_year_avgs <- train_set %>%
+  group_by(release_year) %>%
+  summarise(b_release_year = mean(rating - mu, na.rm = TRUE))  # Adjust for global average (mu)
+
+# Display the first few rows
+head(release_year_avgs)
+
+# View the first few titles in the 'title' column of the test set to understand their format
+head(test_set$title, 20)
+
+# Extract the year from the "title" column of the test_set using a regular expression
+test_set$release_year <- str_extract(test_set$title, "\\(\\d{4}\\)")  # Extract text like (1995)
+
+# Check if extraction worked correctly
+head(test_set$release_year, 20)
+
+# Clean up any remaining parentheses if they are present using a regular expression
+test_set$release_year <- test_set$release_year %>%
+  str_remove_all("[()]")
+
+head(test_set$release_year)
+
+# Convert the release_year to numeric to handle it as a number
+test_set$release_year <- as.numeric(test_set$release_year)
+
+# Display the first few rows to check if the year extraction worked
+head(test_set)
+
+
+# Join the existing movie, user, timestamp, and release_year biases to the test_set
+predicted_ratings_test_with_release_year <- test_set %>%
+  left_join(movie_avgs, by = 'movieId') %>%       # Join movie biases
+  left_join(user_avgs, by = 'userId') %>%         # Join user biases
+  left_join(year_avgs, by = 'year') %>%    # Join with year bias
+  left_join(month_avgs, by = 'month') %>%       # Join with month bias
+  left_join(day_avgs, by = 'day') %>%           # Join with day bias
+  left_join(release_year_avgs, by = 'release_year') %>%  # Join release year biases
+  mutate(pred = mu + b_i + b_u + b_year + b_month + b_day + b_release_year) %>%  # Add the release_year bias
+  .$pred   # Extract the predicted ratings
+
+
+# Check for missing (NA) values in predicted ratings
+sum(is.na(predicted_ratings_test_with_release_year))  # Check how many NAs are present
+
+# Handle Missing Values (NA) in predictions by replacing them with average rating 
+filling_rating <- mean(predicted_ratings_test_with_release_year, na.rm = TRUE)
+filling_rating
+predicted_ratings_test_with_release_year[is.na(predicted_ratings_test_with_release_year)] <- filling_rating 
+
+# Ensure no NA values remain
+sum(is.na(predicted_ratings_test_with_release_year))  # Check again for NAs
+
+# Calculate RMSE for the test_set with release year bias
+rmse_movie_user_timestamp_release_year_effects_model <- RMSE(predicted_ratings_test_with_release_year, test_set$rating)
+
+# Print the RMSE
+rmse_movie_user_timestamp_release_year_effects_model
+#Insight: the RMSE of the Movie + User + Timestamp + Release year Effects Model is 0.8812438
+
+# Add the RMSE for the Movie + User + Timestamp + Release year Effects Model
+#to the rmse_results table
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(Method = "Movie + User + Timestamp + Release Year Effects Model", 
+                                     RMSE = rmse_movie_user_timestamp_release_year_effects_model))
+
+# View the updated rmse_results table
+rmse_results %>% knitr::kable()
+#Insight: the RMSE of the Movie + User + Timestamp + Release Year Effects Model is better
+#than the RMSE of the Just-the-Average Model,
+#the RMSE of the Movie Effect Model, and the RMSE of the Movie + User + Genre Effects Model.
+#But it is not as good as the RMSE of the Movie + User Effects Model or the RMSE of the 
+#Movie + User + Timestamp Effects Model
+#################################################################################
+#CHOOSE A MODEL AND ENHANCE IT WITH REGULARIZATION
+#################################################################################
+
+#choose a model to enhance with regularization:
+
+#The model with the lowest (and thus best) RMSE of the Movie + User Effects Model.
+#The model with the second lowest (and thus second best) RMSE is the Movie + User
+#+ Timestamp Effects Model
+#given that the code for the Movie + User Effects Model was provided in the 
+#Machine Learning course,
+#I choose the Movie + User + Timestamp + Release Year Effects Model to 
+#further enhance it with regularization.
+
+#Enahnce the Movie + User + Timestamp Effects Model with regularization:
+
+#Use cross-validation to determine best lambda to use:
+
+# Define lambda sequence for cross-validation
+lambdas <- seq(0, 10, 0.25)
+
+# Initialize a vector to store RMSE values for each lambda
+rmses <- sapply(lambdas, function(l) {
+  
+  # Mean rating of the training set
+  mu <- mean(train_set$rating)
+  
+  # Regularized movie bias
+  b_i <- train_set %>%
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu) / (n() + l))  # Regularization applied to movie bias
+  
+  # Regularized user bias
+  b_u <- train_set %>%
+    left_join(b_i, by = "movieId") %>%  # Join movie biases into user dataset
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - b_i - mu) / (n() + l))  # Regularization applied to user bias
+  
+  # Regularized year bias
+  b_year <- train_set %>%
+    left_join(b_i, by = "movieId") %>%  # Join movie biases into year dataset
+    left_join(b_u, by = "userId") %>%   # Join user biases
+    group_by(year) %>%
+    summarize(b_year = sum(rating - mu - b_i - b_u) / (n() + l))  # Regularization applied to year bias
+  
+  # Regularized month bias
+  b_month <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_year, by = "year") %>%  # Join year biases
+    group_by(month) %>%
+    summarize(b_month = sum(rating - mu - b_i - b_u - b_year) / (n() + l))  # Regularization applied to month bias
+  
+  # Regularized day bias
+  b_day <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_year, by = "year") %>%
+    left_join(b_month, by = "month") %>%  # Join month biases
+    group_by(day) %>%
+    summarize(b_day = sum(rating - mu - b_i - b_u - b_year - b_month) / (n() + l))  # Regularization applied to day bias
+  
+  # Make predictions on the test set
+  predicted_ratings <- test_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_year, by = "year") %>%
+    left_join(b_month, by = "month") %>%
+    left_join(b_day, by = "day") %>%
+    mutate(pred = mu + b_i + b_u + b_year + b_month + b_day) %>%
+    pull(pred)  # Extract the predictions as a vector
+  
+  # Calculate RMSE for the current lambda
+  return(RMSE(predicted_ratings, test_set$rating))
+})
+
+#Note to grader: running the code to create this graph make take a long time.
+#I have commented it out, as it is not absolutely necessary.
+#You are welcome to run it if you wish to visualize the graph.
+# # Plot RMSE values for different lambda values
+# qplot(lambdas, rmses) + 
+#   labs(title = "RMSE vs Lambda (Regularization)", 
+#        x = "Lambda", y = "RMSE") +
+#   theme_minimal()
+
+# Identify the best lambda
+best_lambda <- lambdas[which.min(rmses)]
+print(paste("Best lambda:", best_lambda))
+#Insight: he best lambda to use is 5.
+
+# Set the best lambda value
+best_lambda <- best_lambda
+
+# Mean rating of the training set
+mu <- mean(train_set$rating)
+
+#Use the training_set dataset to regularize:
+
+# Regularized movie bias (b_i) using the train_set
+b_i <- train_set %>%
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu) / (n() + best_lambda))  # Apply regularization
+
+# Regularized user bias (b_u)  using the train_set
+b_u <- train_set %>%
+  left_join(b_i, by = "movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu) / (n() + best_lambda))  # Apply regularization
+
+# Regularized year bias (b_year)  using the train_set
+b_year <- train_set %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  group_by(year) %>%
+  summarize(b_year = sum(rating - mu - b_i - b_u) / (n() + best_lambda))  # Apply regularization
+
+# Regularized month bias (b_month)  using the train_set
+b_month <- train_set %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_year, by = "year") %>%
+  group_by(month) %>%
+  summarize(b_month = sum(rating - mu - b_i - b_u - b_year) / (n() + best_lambda))  # Apply regularization
+
+# Regularized day bias (b_day)  using the train_set
+b_day <- train_set %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_year, by = "year") %>%
+  left_join(b_month, by = "month") %>%
+  group_by(day) %>%
+  summarize(b_day = sum(rating - mu - b_i - b_u - b_year - b_month) / (n() + best_lambda))  # Apply regularization
+
+# Make predictions on the test set  
+predicted_ratings_final <- test_set %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_year, by = "year") %>%
+  left_join(b_month, by = "month") %>%
+  left_join(b_day, by = "day") %>%
+  mutate(pred = mu + b_i + b_u + b_year + b_month + b_day) %>%
+  pull(pred)  # Extract predictions
+
+
+# Calculate RMSE for the Regularized Movie + User + Timestamp + Release
+#Year Effects Model with the best lambda 
+rmse_regularized_movie_user_timestamp_model <- RMSE(predicted_ratings_final, test_set$rating)
+print(rmse_regularized_movie_user_timestamp_model)
+#Insight: the RMSE of the Regularized Movie + User + Timestamp Effects Model is 0.865986349235701.
+
+# Add the RMSE for the Regularized Movie + User + Timestamp Effects Model to the rmse_results table
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(Method = "Regularized Movie + User + Timestamp Effects Model", 
+                                     RMSE = rmse_movie_user_timestamp_model))
+
+#show the rmse_results table
+rmse_results  %>% knitr::kable()
+#Insight: the MSE of the Regularized Movie + User + Timestamp Effects Model (0.8659863)
+#is better than the RMSE of the  Movie + User + Timestamp Effects Model (0.8694084).
+
+##########################################################
+#TEST THE REGULARIZED MODEL ON THE FINAL HOLDOUT TEST SET
+##########################################################
+
+# Predict ratings for the movies in the final_holdout_test dataset using the
+#regularized  Movie + User  + Timestamp Effects Model (which was regularized using
+#the training_set):
+
+# Convert timestamp column in final_holdout_test to Date format
+final_holdout_test$timestamp <- as.POSIXct(final_holdout_test$timestamp, origin = "1970-01-01", tz = "UTC")
+
+# Extract year, month, and day features from the timestamp in final_holdout_test
+final_holdout_test <- final_holdout_test %>%
+  mutate(year = as.integer(format(timestamp, "%Y")),
+         month = as.integer(format(timestamp, "%m")),
+         day = as.integer(format(timestamp, "%d")))
+
+# Check the new columns in final_holdout_test
+head(final_holdout_test)
+
+# Make predictions on the final_holdout_test dataset
+predicted_ratings_holdout <- final_holdout_test %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_year, by = "year") %>%
+  left_join(b_month, by = "month") %>%
+  left_join(b_day, by = "day") %>%
+  mutate(pred = mu + b_i + b_u + b_year + b_month + b_day) %>%
+  pull(pred)  # Extract the predicted ratings as a vector
+
+# Check how many NAs are in the predicted ratings vector
+sum(is.na(predicted_ratings_holdout))  # Print out how many NAs
+
+# Handle Missing Values (NA) in predictions by replacing them with the average rating
+filling_rating <- mean(predicted_ratings_holdout, na.rm = TRUE)
+filling_rating
+predicted_ratings_holdout[is.na(predicted_ratings_holdout)] <- filling_rating
+
+# Ensure no NAs remain in the predicted ratings
+sum(is.na(predicted_ratings_holdout))  # This should return 0 if there are no NAs
+
+# Calculate RMSE for the Regularized Movie + User + Timestamp Effects Model on the final holdout test set
+rmse_regularized_move_user_timestamp_model_HOLDOUT <- RMSE(predicted_ratings_holdout, final_holdout_test$rating)
+
+# Print the RMSE
+print(rmse_regularized_move_user_timestamp_model_HOLDOUT)
+#Insight: the RMSE of the Regularized Movie + User + Timestamp Effects Model
+#applied to the final holdout test set is 0.8655929
+
+#Print statement reporting the RMSE of the Regularized Movie + User + 
+#Timestamp Effects Model applied to the FINAL HOLDOUT TEST SET
+print(paste("The RMSE of the Regularized Movie + User + Timestamp Effects Model applied to the FINAL HOLDOUT TEST SET is", rmse_regularized_move_user_timestamp_model_HOLDOUT))
+
+##########################################################################
+#RESULTS 
+###########################################################################
+
+#A naive model was created using the average movie rating obtained from
+#the "movieId" column in the train set.
+#In additon, five models were developed, which incorporated the effects
+#present in all five  available columns in the train set that could be used as
+#predictors to predict movie ratings.
+#Such effects are: user effect (obtained using the userId column, movie 
+#effect (obtained using the movieId column), timestapm effects (obtained
+#from the timestamp column),
+#movie release year (obtained from the title column), and genre effect
+#(obtained using the genres column).
+#and fo traing such models on the test set (validation set), and finally
+#testing the chosen model 
+#All six models were tested on the test set (validation set) and the 
+#RMSE of all six models were were reported on the rmse_results table.
+#The model with the best RMSE (0.8666644) was the Movie + User Effects 
+#Model.  Given that similar code for this model had been provided in 
+#the Machine Learning course,
+#I chose the model with the second best RMSE (0.8694084), that is,
+#the Movie + User + Timestamp Effects Model, whose code I developed, 
+#to further enhance it with regularization.
+#I thus obtained the RMSE of the Regularized Movie + User + Timestamp
+#Effects Model (0.8659863), which was better than the non regularized 
+#Movie + User + Timestamp Effects Model (0.8694084).
+
+##########################################################################
+#CONCLUSION
+##########################################################################
+
+#In summary, the Regularized Movie + User + Timestamp Effects Model 
+#that was  used to predict the ratings in the final holdout set 
+#produces a RMSE of 0.86559.
+#In my opinion, it is a very good RMSE.  This means that this 
+#model's typical prediction error is only 0.86559 movie rating. 
+#Therefore, this model can predict movie ratings quite accurately.
+#This accuracy is the result of the development and testing of
+#six models that incorporate the effects  that could be derived from
+#all six the available columns in the train dataset (userId, 
+#movieId, rating, timestamp, title and genre). Furthermore, 
+#it is the result of regularizing
+#the best of the six above models and applying the regularized 
+#model on the final holdout test. Thus, all available variables
+#in the dataset were considered.
+#Limitations include the fact that the matrix factorization 
+#technique was not used successfully to enhance the RMSE due
+#to computer memory issues.
+#Furhter work could include exploring the enhancement of the
+#RMSE, which could be achieved in a computer environment with a lot of memory and,
+#ideally, that includes a cluster of computers
+#that allow parallel processing.
+
+
+
+
